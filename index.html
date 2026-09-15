@@ -782,6 +782,11 @@ async function afterSave(id, msg){
   }
 }
 
+function fmtToday(){
+  const d = new Date();
+  return d.getFullYear()+'/'+(d.getMonth()+1)+'/'+d.getDate();
+}
+
 function pickRow(id, on){
   if (on) selected.add(id); else selected.delete(id);
   renderMain();
