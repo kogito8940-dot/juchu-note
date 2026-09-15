@@ -130,9 +130,12 @@ tbody tr.busy td:first-child::after{
 }
 @keyframes spin{to{transform:rotate(360deg)}}
 tbody tr.leaving td{
-  background:#EDF3EC !important; color:var(--ink-3); pointer-events:none;
-  transition:opacity .5s ease; opacity:.5;
+  background:#E4EFE4 !important; color:#4E6B52; pointer-events:none;
+  opacity:1; transition:opacity .45s ease .75s;
 }
+tbody tr.leaving.busy td{opacity:1}
+tbody tr.leaving td:first-child::after{display:none}
+tbody tr.leaving.fade td{opacity:0}
 @media (prefers-reduced-motion: reduce){
   tbody tr.busy td:first-child::after{animation:none}
   tbody tr.leaving td{transition:none}
@@ -615,10 +618,14 @@ async function toMemo(id){
   try{
     await apiPost('moveToMemo', {id});
     toast(`${esc(r.hinmoku)} をメモへ移しました`);
+    setTimeout(() => {
+      const tr = document.querySelector(`tr[data-id="${id}"]`);
+      if (tr) tr.classList.add('fade');
+    }, 600);
     setTimeout(async () => {
       busy.delete(id); hiding.delete(id);
       await reload();
-    }, 1000);
+    }, 1100);
   }catch(e){ busy.delete(id); hiding.delete(id); toast(e.message, true); reload(); }
 }
 
@@ -680,7 +687,7 @@ function rowHtml(r, withOkure, alt, sameOrder){
     ? `<span class="chip dedit" onclick="openDatePanel(event,'${r.id}','hikitori')">在庫</span>`
     : dateCell(r.hikitori, r, 'hikitori');
 
-  return `<tr class="${cls.join(' ')}">
+  return `<tr class="${cls.join(' ')}" data-id="${r.id}">
     <td class="mid"><input type="checkbox" ${selected.has(r.id)?'checked':''} onchange="pickRow('${r.id}',this.checked)"></td>
     ${withOkure ? `<td style="color:var(--chouka-line)">${r.okureNissu!=null?r.okureNissu+'日':''}</td>` : ''}
     <td class="dim">${fmtD(r.uketsuke)}</td>
@@ -770,11 +777,18 @@ async function afterSave(id, msg){
   const willHide = r && r.kanryo && filter === 'open' && !boardPick;
 
   if (willHide){
+    // busy は解かない。触れないまま「完了」の見た目に変えて、そのまま消す
     hiding.add(id);
-    busy.delete(id);
-    renderMain();                       // 完了の見た目で薄く残す
+    renderMain();
     toast(msg + '（完了）');
-    setTimeout(() => { hiding.delete(id); renderMain(); renderCust(); }, 1400);
+    setTimeout(() => {
+      const tr = document.querySelector(`tr[data-id="${id}"]`);
+      if (tr) tr.classList.add('fade');
+    }, 950);
+    setTimeout(() => {
+      busy.delete(id); hiding.delete(id);
+      renderMain(); renderCust();
+    }, 1400);
   } else {
     busy.delete(id);
     renderMain(); renderCust();
