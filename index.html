@@ -122,6 +122,13 @@ td.stage>span{display:block; height:34px; line-height:34px; cursor:pointer; user
 td.stage>span:hover{filter:brightness(.92)}
 .dedit{padding:2px 7px; border-radius:4px; cursor:pointer; border:1px solid transparent; display:inline-block; min-width:40px}
 .dedit:hover{border-color:var(--line-2); background:#fff}
+.panel{position:absolute; z-index:60; background:#fff; border:1px solid var(--line-2);
+  border-radius:9px; box-shadow:0 10px 30px rgba(0,0,0,.14); padding:13px 15px; min-width:250px}
+.panel .ph{font-weight:600; margin-bottom:9px; font-size:12.5px}
+.panel .pl{display:block; font-size:11.5px; color:var(--ink-2); margin-bottom:3px}
+.panel input,.panel select{width:100%; height:30px; border:1px solid var(--line-2);
+  border-radius:5px; padding:0 7px; background:#fff}
+.panel .pf{display:flex; gap:6px; justify-content:flex-end; margin-top:13px}
 .dinput{height:24px; border:1px solid var(--ink); border-radius:4px; padding:0 4px; font-size:12px; background:#fff}
 td.sep{border-left:1px solid var(--line)}
 
@@ -449,78 +456,80 @@ function dateCell(v, r, which){
     else if (diff < 0 && !r.kanryo && which === 'nouhin') cls = 'd-chouka';
     label = fmtD(v);
   }
-  return `<span class="dedit ${cls}" onclick="editDate(event,'${r.id}','${which}')">${label}</span>`;
+  return `<span class="dedit ${cls}" onclick="openDatePanel(event,'${r.id}','${which}')">${label}</span>`;
 }
 
-/** 日付セルをその場で編集する */
-function editDate(ev, id, field){
+/** 日付セルを押したときのパネル。日付の変更と、引取日なら受け取り方の変更もできる */
+function openDatePanel(ev, id, field){
   ev.stopPropagation();
-  const span = ev.currentTarget;
-  if (span.querySelector('input')) return;
+  closePanel();
   const r = rows.find(x => x.id === id);
   const cur = field === 'nouhin' ? r.nouhin : r.hikitori;
-  const box = document.createElement('input');
-  box.type = 'date';
-  box.className = 'dinput';
-  box.value = cur ? cur.replace(/\//g,'-').replace(/-(\d)(?=-|$)/g, '-0$1') : '';
-  const prev = span.innerHTML;
-  span.innerHTML = '';
-  span.appendChild(box);
-  box.focus();
-  if (box.showPicker) { try{ box.showPicker(); }catch(e){} }
+  const iso = cur ? cur.replace(/\//g,'-').replace(/-(\d)(?=-|$)/g,'-0$1') : '';
 
-  let done = false;
-  const finish = async (save) => {
-    if (done) return; done = true;
-    const v = box.value ? box.value.replace(/-/g,'/') : '';
-    if (!save || v === (cur||'')){ span.innerHTML = prev; return; }
-    span.textContent = '…';
-    try{
-      const patch = {}; patch[field] = v;
-      await apiPost('updateMeisai', {id, patch});
-      if (field === 'nouhin') r.nouhin = v; else r.hikitori = v;
-      await reload();
-      toast(v ? (field==='nouhin'?'納・出荷日':'引取日') + 'を ' + fmtD(v) + ' にしました' : '日付を空にしました');
-    }catch(e){ toast(e.message, true); span.innerHTML = prev; }
-  };
-  box.addEventListener('change', () => finish(true));
-  box.addEventListener('blur',   () => finish(true));
-  box.addEventListener('keydown', e => {
-    if (e.key === 'Escape'){ done = true; span.innerHTML = prev; }
-    if (e.key === 'Enter'){ finish(true); }
-  });
+  const p = document.createElement('div');
+  p.className = 'panel';
+  p.innerHTML = `
+    <div class="ph">${esc(r.kokyaku)}　${esc(r.hinmoku)}</div>
+    <label class="pl">${field==='nouhin'?'納・出荷日':'引取日'}</label>
+    <input type="date" id="pDate" value="${iso}">
+    ${field==='hikitori' ? `
+      <label class="pl" style="margin-top:10px">受け取り方</label>
+      <select id="pUkt">${UKETORI.map(u=>`<option${u===r.uketori?' selected':''}>${u}</option>`).join('')}</select>
+      <label class="pl" style="margin-top:10px">発注先<span class="dim">（ケミテック以外のとき）</span></label>
+      <input type="text" id="pSaki" value="${esc(r.hacchusaki)}" placeholder="空欄ならケミテック">
+    ` : ''}
+    <div class="pf">
+      <button class="btn sm" onclick="closePanel()">やめる</button>
+      <button class="btn sm" onclick="clearDate('${id}','${field}')">日付を消す</button>
+      <button class="btn sm primary" onclick="saveDatePanel('${id}','${field}')">保存</button>
+    </div>`;
+  document.body.appendChild(p);
+  const rect = ev.currentTarget.getBoundingClientRect();
+  p.style.left = Math.min(rect.left + scrollX, innerWidth - 270) + 'px';
+  p.style.top  = (rect.bottom + scrollY + 4) + 'px';
+  setTimeout(() => document.addEventListener('mousedown', outsideClose), 0);
+  const di = document.getElementById('pDate'); if (di) di.focus();
 }
 
-/** 受け取り方（在庫／発注先）を切り替える */
-function editUketori(ev, id){
-  ev.stopPropagation();
-  const span = ev.currentTarget;
-  if (span.querySelector('select')) return;
+function outsideClose(e){
+  const p = document.querySelector('.panel');
+  if (p && !p.contains(e.target)) closePanel();
+}
+function closePanel(){
+  const p = document.querySelector('.panel');
+  if (p) p.remove();
+  document.removeEventListener('mousedown', outsideClose);
+}
+
+async function saveDatePanel(id, field){
   const r = rows.find(x => x.id === id);
-  const prev = span.innerHTML;
-  const sel = document.createElement('select');
-  sel.className = 'dinput';
-  sel.innerHTML = UKETORI.map(u => `<option${u===r.uketori?' selected':''}>${u}</option>`).join('');
-  span.innerHTML = ''; span.appendChild(sel); sel.focus();
-  let done = false;
-  const finish = async (save) => {
-    if (done) return; done = true;
-    if (!save || sel.value === r.uketori){ span.innerHTML = prev; return; }
-    try{
-      await apiPost('updateMeisai', {id, patch:{uketori: sel.value}});
-      await reload();
-      toast(sel.value + ' にしました');
-    }catch(e){ toast(e.message, true); span.innerHTML = prev; }
-  };
-  sel.addEventListener('change', () => finish(true));
-  sel.addEventListener('blur',   () => finish(false));
+  const d = document.getElementById('pDate').value;
+  const patch = {};
+  patch[field] = d ? d.replace(/-/g,'/') : '';
+  if (field === 'hikitori'){
+    const u = document.getElementById('pUkt').value;
+    const k = document.getElementById('pSaki').value.trim();
+    if (u !== r.uketori) patch.uketori = u;
+    if (k !== r.hacchusaki) patch.hacchusaki = k;
+    if (u === '在庫') delete patch.hikitori;
+  }
+  closePanel();
+  try{
+    await apiPost('updateMeisai', {id, patch});
+    await reload();
+    toast('保存しました');
+  }catch(e){ toast(e.message, true); }
 }
 
-function stageCell(state, id, field){
-  if (state === '不要') return `<span class="st-fuyou">不要</span>`;
-  const cls = state === '済' ? 'st-zumi' : 'st-mi';
-  const label = state === '済' ? '済' : '未';
-  return `<span class="${cls}" onclick="toggleStage('${id}','${field}')">${label}</span>`;
+async function clearDate(id, field){
+  closePanel();
+  try{
+    const patch = {}; patch[field] = '';
+    await apiPost('updateMeisai', {id, patch});
+    await reload();
+    toast('日付を消しました');
+  }catch(e){ toast(e.message, true); }
 }
 
 function visibleRows(){
@@ -576,7 +585,7 @@ function rowHtml(r, withOkure, alt, sameOrder){
   else if (r.timing.indexOf('明日') === 0) cls.push('t-asu');
 
   const hik = r.uketori === '在庫'
-    ? `<span class="chip dedit" onclick="editUketori(event,'${r.id}')">在庫</span>`
+    ? `<span class="chip dedit" onclick="openDatePanel(event,'${r.id}','hikitori')">在庫</span>`
     : dateCell(r.hikitori, r, 'hikitori');
 
   return `<tr class="${cls.join(' ')}">
@@ -601,29 +610,47 @@ function esc(s){
 }
 
 // ══════════ 進捗の切り替え ══════════
-async function toggleStage(id, field){
+function toggleStage(ev, id, field){
+  ev.stopPropagation();
+  closePanel();
   const r = rows.find(x => x.id === id);
   if (!r) return;
-  const patch = {}; let name, to;
-  if (field === 'hacchuZumi'){ patch.hacchuZumi = !r.hacchuZumi; name='発注'; to = patch.hacchuZumi; }
-  if (field === 'denpyoZumi'){ patch.denpyoZumi = !r.denpyoZumi; name='伝票'; to = patch.denpyoZumi; }
-  if (field === 'nouhinDone'){
-    const on = r.stNouhin !== '済';
-    patch.nouhin = on ? fmtToday() : '';
-    name='納品'; to = on;
-  }
-  // 画面を先に書き換えて、何が変わったか見えるようにする
-  const cell = event && event.currentTarget;
-  if (cell){
-    cell.className = to ? 'st-zumi' : 'st-mi';
-    cell.textContent = to ? '済' : '未';
-  }
+  const nm = {hacchuZumi:'発注', denpyoZumi:'伝票', nouhinDone:'納品'}[field];
+  const now = field==='hacchuZumi' ? r.hacchuZumi
+            : field==='denpyoZumi' ? r.denpyoZumi
+            : (r.stNouhin === '済');
+  const to = !now;
+
+  const p = document.createElement('div');
+  p.className = 'panel';
+  p.innerHTML = `
+    <div class="ph">${esc(r.kokyaku)}　${esc(r.hinmoku)}</div>
+    <div style="margin:8px 0 4px">${nm}を <b>${to?'済':'未'}</b> にします${
+      field==='nouhinDone' && to ? `<div class="dim" style="margin-top:4px">納・出荷日に今日（${fmtToday()}）が入ります</div>` : ''}${
+      field==='nouhinDone' && !to ? `<div class="dim" style="margin-top:4px">納・出荷日が空になります</div>` : ''}</div>
+    <div class="pf">
+      <button class="btn sm" onclick="closePanel()">やめる</button>
+      <button class="btn sm primary" onclick="doStage('${id}','${field}',${to})">${to?'済にする':'未に戻す'}</button>
+    </div>`;
+  document.body.appendChild(p);
+  const rect = ev.currentTarget.getBoundingClientRect();
+  p.style.left = Math.min(rect.left + scrollX - 120, innerWidth - 270) + 'px';
+  p.style.top  = (rect.bottom + scrollY + 4) + 'px';
+  setTimeout(() => document.addEventListener('mousedown', outsideClose), 0);
+}
+
+async function doStage(id, field, to){
+  closePanel();
+  const r = rows.find(x => x.id === id);
+  const patch = {}; let nm;
+  if (field === 'hacchuZumi'){ patch.hacchuZumi = to; nm = '発注'; }
+  if (field === 'denpyoZumi'){ patch.denpyoZumi = to; nm = '伝票'; }
+  if (field === 'nouhinDone'){ patch.nouhin = to ? fmtToday() : ''; nm = '納品'; }
   try{
     await apiPost('updateMeisai', {id, patch});
-    Object.assign(r, patch);
-    const willHide = await refreshQuiet(id);
-    toast(`${esc(r.kokyaku)}　${esc(r.hinmoku)}　${name}を${to?'済':'未'}にしました`
-          + (willHide ? '（完了したので一覧から外れます）' : ''));
+    const hidden = await refreshQuiet(id);
+    toast(`${esc(r.kokyaku)}　${nm}を${to?'済':'未'}にしました`
+          + (hidden ? '（完了したので一覧から外れます）' : ''));
   }catch(e){ toast(e.message, true); reload(); }
 }
 
