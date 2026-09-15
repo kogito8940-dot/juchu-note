@@ -122,6 +122,10 @@ td.stage>span{display:block; height:34px; line-height:34px; cursor:pointer; user
 td.stage>span:hover{filter:brightness(.92)}
 .dedit{padding:2px 7px; border-radius:4px; cursor:pointer; border:1px solid transparent; display:inline-block; min-width:40px}
 .dedit:hover{border-color:var(--line-2); background:#fff}
+.rowmenu{margin-left:7px; color:var(--ink-3); cursor:pointer; padding:0 4px; border-radius:4px;
+  opacity:0; letter-spacing:1px}
+tbody tr:hover .rowmenu{opacity:1}
+.rowmenu:hover{background:#EDEBE6; color:var(--ink)}
 .panel{position:absolute; z-index:60; background:#fff; border:1px solid var(--line-2);
   border-radius:9px; box-shadow:0 10px 30px rgba(0,0,0,.14); padding:13px 15px; min-width:250px}
 .panel .ph{font-weight:600; margin-bottom:9px; font-size:12.5px}
@@ -229,6 +233,7 @@ pre.nichiji{
     <button class="on" data-tab="list">一覧</button>
     <button data-tab="nichiji">今日のリスト</button>
     <button data-tab="cust">顧客別</button>
+    <button data-tab="memo">メモ</button>
     <button data-tab="search">検索</button>
   </nav>
 
@@ -294,6 +299,22 @@ pre.nichiji{
       <span class="n" id="custCount" style="color:var(--ink-2)"></span>
     </div>
     <div id="custBox"></div>
+  </section>
+
+  <!-- ───── メモ ───── -->
+  <section id="tab-memo" style="display:none">
+    <div class="sec-head"><h2>メモ</h2><span class="n" id="memoCount"></span></div>
+    <div class="tablebox">
+      <table>
+        <thead><tr>
+          <th style="width:88px">受付日</th>
+          <th style="width:160px">顧客名</th>
+          <th>内容</th>
+          <th style="width:240px">備考</th>
+        </tr></thead>
+        <tbody id="memoBody"><tr><td colspan="4" class="loading">読み込んでいます…</td></tr></tbody>
+      </table>
+    </div>
   </section>
 
   <!-- ───── 検索 ───── -->
@@ -539,6 +560,40 @@ function stageCell(state, id, field){
   return `<span class="${cls}" onclick="toggleStage(event,'${id}','${field}')">${label}</span>`;
 }
 
+/** 行の操作メニュー */
+function openRowMenu(ev, id){
+  ev.stopPropagation();
+  closePanel();
+  const r = rows.find(x => x.id === id);
+  const p = document.createElement('div');
+  p.className = 'panel';
+  p.innerHTML = `
+    <div class="ph">${esc(r.kokyaku)}　${esc(r.hinmoku)}</div>
+    <div class="dim" style="margin-bottom:10px; font-size:11.5px; line-height:1.6">
+      受注ではなく用事の記録だった場合は、メモへ移すと一覧から外れます。<br>
+      （請求書を渡す、集金、納品書持参など）
+    </div>
+    <div class="pf">
+      <button class="btn sm" onclick="closePanel()">やめる</button>
+      <button class="btn sm primary" onclick="toMemo('${id}')">メモへ移す</button>
+    </div>`;
+  document.body.appendChild(p);
+  const rect = ev.currentTarget.getBoundingClientRect();
+  p.style.left = Math.min(rect.left + scrollX, innerWidth - 280) + 'px';
+  p.style.top  = (rect.bottom + scrollY + 4) + 'px';
+  setTimeout(() => document.addEventListener('mousedown', outsideClose), 0);
+}
+
+async function toMemo(id){
+  closePanel();
+  const r = rows.find(x => x.id === id);
+  try{
+    await apiPost('moveToMemo', {id});
+    await reload();
+    toast(`${esc(r.hinmoku)} をメモへ移しました`);
+  }catch(e){ toast(e.message, true); }
+}
+
 function visibleRows(){
   let v = rows;
   if (boardPick) v = v.filter(r => r.mondai === boardPick);
@@ -600,7 +655,7 @@ function rowHtml(r, withOkure, alt, sameOrder){
     ${withOkure ? `<td style="color:var(--chouka-line)">${r.okureNissu!=null?r.okureNissu+'日':''}</td>` : ''}
     <td class="dim">${fmtD(r.uketsuke)}</td>
     <td>${esc(r.kokyaku)}</td>
-    <td>${esc(r.hinmoku)}</td>
+    <td>${esc(r.hinmoku)}<span class="rowmenu" onclick="openRowMenu(event,'${r.id}')">…</span></td>
     <td class="dim">${esc(r.yoryo)}</td>
     <td class="num">${r.suryo==null?'':r.suryo}</td>
     <td>${hik}</td>
@@ -856,6 +911,20 @@ function renderCust(){
   }).join('') || '<div class="empty">未納品の案件はありません</div>';
 }
 
+// ══════════ メモ ══════════
+async function loadMemo(){
+  try{
+    const m = await apiGet('getMemo');
+    document.getElementById('memoCount').textContent = m.length + '件';
+    document.getElementById('memoBody').innerHTML = m.map(x => `<tr>
+      <td class="dim">${esc(x.uketsuke)}</td>
+      <td>${esc(x.kokyaku)}</td>
+      <td>${esc(x.naiyou)}</td>
+      <td class="dim">${esc(x.bikou)}</td>
+    </tr>`).join('') || '<tr><td colspan="4" class="empty">メモはありません</td></tr>';
+  }catch(e){ toast(e.message, true); }
+}
+
 // ══════════ 検索 ══════════
 function renderSearch(){
   const h = document.getElementById('sHin').value.trim().toLowerCase();
@@ -883,7 +952,7 @@ function renderSearch(){
   body.innerHTML = v.slice(0,300).map(r => `<tr>
     <td class="dim">${r.uketsuke}</td>
     <td>${esc(r.kokyaku)}</td>
-    <td>${esc(r.hinmoku)}</td>
+    <td>${esc(r.hinmoku)}<span class="rowmenu" onclick="openRowMenu(event,'${r.id}')">…</span></td>
     <td class="dim">${esc(r.yoryo)}</td>
     <td class="num">${r.suryo==null?'':r.suryo}</td>
     <td class="num">${r.tanka? Number(r.tanka).toLocaleString() : '<span class="dim">—</span>'}</td>
@@ -895,9 +964,10 @@ function renderSearch(){
 document.querySelectorAll('nav.tabs button').forEach(b => {
   b.onclick = () => {
     document.querySelectorAll('nav.tabs button').forEach(x => x.classList.toggle('on', x===b));
-    ['list','nichiji','cust','search'].forEach(t =>
+    ['list','nichiji','cust','memo','search'].forEach(t =>
       document.getElementById('tab-'+t).style.display = (t===b.dataset.tab ? '' : 'none'));
     if (b.dataset.tab === 'nichiji') loadNichiji();
+    if (b.dataset.tab === 'memo') loadMemo();
   };
 });
 document.querySelectorAll('.tools button[data-f]').forEach(b => {
