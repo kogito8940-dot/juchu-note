@@ -290,7 +290,7 @@ pre.nichiji{
           <th style="width:88px">引取日</th>
           <th style="width:88px">納・出荷日</th>
           <th style="width:56px" class="sep">発注</th>
-          <th style="width:56px">納品</th>
+          <th style="width:56px" title="自社仕入の行では「引き取ったか」を表します">納品</th>
           <th style="width:56px">伝票</th>
           <th style="width:200px">備考</th>
         </tr></thead>
@@ -468,6 +468,7 @@ function renderBoard(b){
     ['未発注', b.未発注||0, 'mi'],
     ['入荷遅れ', b.入荷遅れ||0, ''],
     ['入荷待ち', b.入荷待ち||0, ''],
+    ['引取待ち', b.引取待ち||0, ''],
     ['日付未定', b.日付未定||0, '']
   ];
   document.getElementById('board').innerHTML = spec.map(([k,v,c]) =>
@@ -481,7 +482,7 @@ function pickBoard(k){
   renderMain();
 }
 function boardCounts(){
-  const c = {期日超過:0, 伝票未起票:0, 未発注:0, 入荷遅れ:0, 入荷待ち:0, 日付未定:0};
+  const c = {期日超過:0, 伝票未起票:0, 未発注:0, 入荷遅れ:0, 入荷待ち:0, 引取待ち:0, 日付未定:0};
   rows.forEach(r => { if (r.mondai && c.hasOwnProperty(r.mondai)) c[r.mondai]++; });
   return c;
 }
@@ -698,7 +699,7 @@ function rowHtml(r, withOkure, alt, sameOrder){
     <td>${hik}</td>
     <td>${dateCell(r.nouhin, r, 'nouhin')}</td>
     <td class="stage sep">${stageCell(r.stHacchu, r.id, 'hacchuZumi')}</td>
-    <td class="stage">${stageCell(r.stNouhin==='済'?'済':'未', r.id, 'nouhinDone')}</td>
+    <td class="stage">${stageCell(r.stNouhin, r.id, 'nouhinDone')}</td>
     <td class="stage">${stageCell(r.stDenpyo, r.id, 'denpyoZumi')}</td>
     <td class="dim">${esc(r.bikou)}</td>
   </tr>`;
@@ -714,7 +715,8 @@ function toggleStage(ev, id, field){
   closePanel();
   const r = rows.find(x => x.id === id);
   if (!r) return;
-  const nm = {hacchuZumi:'発注', denpyoZumi:'伝票', nouhinDone:'納品'}[field];
+  const nm = field==='nouhinDone' && r.jisha ? '引取'
+           : {hacchuZumi:'発注', denpyoZumi:'伝票', nouhinDone:'納品'}[field];
   const now = field==='hacchuZumi' ? r.hacchuZumi
             : field==='denpyoZumi' ? r.denpyoZumi
             : (r.stNouhin === '済');
@@ -725,8 +727,8 @@ function toggleStage(ev, id, field){
   p.innerHTML = `
     <div class="ph">${esc(r.kokyaku)}　${esc(r.hinmoku)}</div>
     <div style="margin:8px 0 4px">${nm}を <b>${to?'済':'未'}</b> にします${
-      field==='nouhinDone' && to ? `<div class="dim" style="margin-top:4px">納・出荷日に今日（${fmtToday()}）が入ります</div>` : ''}${
-      field==='nouhinDone' && !to ? `<div class="dim" style="margin-top:4px">納・出荷日が空になります</div>` : ''}</div>
+      field==='nouhinDone' && to ? `<div class="dim" style="margin-top:4px">${r.jisha?'引取日（実績）':'納・出荷日'}に今日（${fmtToday()}）が入ります</div>` : ''}${
+      field==='nouhinDone' && !to ? `<div class="dim" style="margin-top:4px">${r.jisha?'引取の記録':'納・出荷日'}が空になります</div>` : ''}</div>
     <div class="pf">
       <button class="btn sm" onclick="closePanel()">やめる</button>
       <button class="btn sm primary" onclick="doStage('${id}','${field}',${to})">${to?'済にする':'未に戻す'}</button>
@@ -744,7 +746,7 @@ async function doStage(id, field, to){
   const patch = {}; let nm;
   if (field === 'hacchuZumi'){ patch.hacchuZumi = to; nm = '発注'; }
   if (field === 'denpyoZumi'){ patch.denpyoZumi = to; nm = '伝票'; }
-  if (field === 'nouhinDone'){ patch.nouhin = to ? fmtToday() : ''; nm = '納品'; }
+  if (field === 'nouhinDone'){ patch.nouhin = to ? fmtToday() : ''; nm = r.jisha ? '引取' : '納品'; }
 
   // 押した行をすぐ固める。保存が終わるまで触れない
   busy.add(id);
