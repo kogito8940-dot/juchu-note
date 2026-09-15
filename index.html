@@ -1,1 +1,803 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>受注ノート</title>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<style>
+:root{
+  --paper:#F7F6F3;
+  --card:#FFFFFF;
+  --ink:#23282E;
+  --ink-2:#5C646E;
+  --ink-3:#98A0AA;
+  --line:#E2E1DC;
+  --line-2:#CBC9C2;
 
+  --mi:#E07B39;        /* 未 */
+  --mi-bg:#FDF1E7;
+  --zumi:#DDD8D0;      /* 済 */
+  --zumi-ink:#6B6257;
+  --fuyou:#FDFCFB;     /* 不要 */
+  --fuyou-ink:#C3BDB4;
+
+  --kyou:#FAC775;      /* 今日 */
+  --kyou-ink:#412402;
+  --asu:#E8878A;       /* 明日 */
+  --asu-ink:#3B0A0C;
+  --chouka:#9FC0E8;    /* 期日超過 */
+  --chouka-ink:#0E2439;
+  --chouka-line:#2B5B94;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--paper); color:var(--ink);
+  font-family:"Hiragino Kaku Gothic ProN","Yu Gothic Medium","Meiryo",system-ui,sans-serif;
+  font-size:13px; line-height:1.5;
+}
+button{font-family:inherit; font-size:13px; cursor:pointer}
+input,select{font-family:inherit; font-size:13px}
+a{color:inherit}
+
+/* ── 骨組み ── */
+.wrap{max-width:1500px; margin:0 auto; padding:0 20px 80px}
+header.top{
+  display:flex; align-items:center; justify-content:space-between;
+  padding:14px 0 12px; border-bottom:1px solid var(--line); margin-bottom:16px;
+}
+.brand{display:flex; align-items:baseline; gap:12px}
+.brand h1{margin:0; font-size:17px; font-weight:600; letter-spacing:.02em}
+.brand .date{font-size:12px; color:var(--ink-3)}
+.me{display:flex; align-items:center; gap:10px; font-size:12px; color:var(--ink-2)}
+
+.btn{
+  border:1px solid var(--line-2); background:var(--card); color:var(--ink);
+  border-radius:6px; padding:5px 12px;
+}
+.btn:hover{background:#F0EEE9}
+.btn:active{transform:translateY(1px)}
+.btn.primary{background:var(--ink); color:#fff; border-color:var(--ink)}
+.btn.primary:hover{background:#000}
+.btn.sm{padding:3px 9px; font-size:12px}
+.btn[disabled]{opacity:.45; cursor:default}
+
+/* ── タブ ── */
+nav.tabs{display:flex; gap:2px; margin-bottom:16px}
+nav.tabs button{
+  border:none; background:none; padding:7px 14px; color:var(--ink-2);
+  border-bottom:2px solid transparent; border-radius:0;
+}
+nav.tabs button.on{color:var(--ink); font-weight:600; border-bottom-color:var(--ink)}
+
+/* ── 未処理ボード ── */
+.board{display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap}
+.board .cell{
+  flex:1 1 130px; background:var(--card); border:1px solid var(--line);
+  border-radius:8px; padding:10px 13px; text-align:left;
+}
+.board .cell:hover{border-color:var(--line-2)}
+.board .cell.on{border-color:var(--ink); box-shadow:inset 0 0 0 1px var(--ink)}
+.board .cell .k{font-size:12px; color:var(--ink-2)}
+.board .cell .v{font-size:22px; font-weight:600; margin-top:2px; line-height:1.1}
+.board .cell.chouka{background:#EEF4FB} .board .cell.chouka .k,.board .cell.chouka .v{color:var(--chouka-line)}
+.board .cell.mi{background:var(--mi-bg)} .board .cell.mi .k,.board .cell.mi .v{color:#A8531D}
+
+/* ── 操作列 ── */
+.tools{display:flex; gap:8px; align-items:center; margin-bottom:14px; flex-wrap:wrap}
+.tools input[type=search]{
+  flex:1; min-width:180px; height:32px; padding:0 10px;
+  border:1px solid var(--line-2); border-radius:6px; background:var(--card);
+}
+
+/* ── 表 ── */
+.sec-head{display:flex; align-items:center; gap:9px; margin:20px 0 7px}
+.sec-head h2{margin:0; font-size:14px; font-weight:600}
+.sec-head .n{font-size:12px; color:var(--ink-2)}
+.legend{display:flex; gap:12px; font-size:11px; color:var(--ink-2); margin-left:auto}
+.legend i{display:inline-block; width:13px; height:10px; border-radius:2px; vertical-align:-1px; margin-right:4px}
+
+.tablebox{background:var(--card); border:1px solid var(--line); border-radius:8px; overflow-x:auto}
+table{width:100%; border-collapse:collapse; white-space:nowrap}
+thead th{
+  background:#F1EFEB; color:var(--ink-2); font-weight:400; text-align:left;
+  padding:7px 8px; font-size:12px; border-bottom:1px solid var(--line);
+  position:sticky; top:0; z-index:1;
+}
+tbody td{padding:0 8px; height:34px; border-bottom:1px solid var(--line)}
+tbody tr:last-child td{border-bottom:none}
+tbody tr.alt td{background:#FBFAF8}
+tbody tr.sel td{background:#EAF1F9}
+td.num{text-align:right}
+td.mid{text-align:center}
+.dim{color:var(--ink-3)}
+
+/* 進捗セル */
+td.stage{padding:0; width:56px; text-align:center; font-size:12px}
+td.stage>span{display:block; height:34px; line-height:34px; cursor:pointer; user-select:none}
+.st-mi{background:var(--mi); color:#fff; font-weight:600}
+.st-zumi{background:var(--zumi); color:var(--zumi-ink)}
+.st-fuyou{background:var(--fuyou); color:var(--fuyou-ink); font-size:11px}
+td.stage>span:hover{filter:brightness(.95)}
+td.sep{border-left:1px solid var(--line)}
+
+/* 日付セル */
+.d-kyou{background:var(--kyou); color:var(--kyou-ink)}
+.d-asu{background:var(--asu); color:var(--asu-ink)}
+.d-chouka{background:var(--chouka); color:var(--chouka-ink)}
+.chip{background:#F1EFEB; color:var(--ink-2); border-radius:5px; padding:2px 8px; font-size:12px}
+tr.overdue{border-left:3px solid var(--chouka-line)}
+tr.t-kyou{border-left:3px solid #BA7517}
+tr.t-asu{border-left:3px solid #B03A3D}
+
+.cellin{width:100%; height:26px; border:1px solid transparent; background:none;
+  border-radius:4px; padding:0 4px; color:inherit}
+.cellin:hover{border-color:var(--line-2)}
+.cellin:focus{border-color:var(--ink); background:#fff; outline:none}
+
+/* 入力行 */
+tr.newrow td{background:#F1EFEB; border-top:2px solid var(--line-2); height:40px}
+tr.newrow input,tr.newrow select{
+  width:100%; height:28px; border:1px solid var(--line-2); border-radius:5px;
+  padding:0 6px; background:#fff;
+}
+.dupwarn{
+  margin-top:10px; background:var(--mi-bg); border-radius:8px; padding:10px 13px;
+  border:1px solid #F0D5BC;
+}
+.dupwarn .t{color:#A8531D; font-weight:600; margin-bottom:5px}
+
+/* 候補 */
+.suggest{
+  position:absolute; z-index:40; background:#fff; border:1px solid var(--line-2);
+  border-radius:6px; box-shadow:0 6px 18px rgba(0,0,0,.09); max-height:230px; overflow-y:auto;
+  min-width:210px;
+}
+.suggest div{padding:6px 10px; cursor:pointer}
+.suggest div:hover,.suggest div.pick{background:#EAF1F9}
+.suggest .sub{color:var(--ink-3); font-size:11px; margin-left:6px}
+
+/* 日次リスト */
+pre.nichiji{
+  background:var(--card); border:1px solid var(--line); border-radius:8px;
+  padding:16px 18px; margin:0; overflow-x:auto; font-size:12.5px; line-height:1.9;
+  font-family:"SF Mono",Menlo,Consolas,monospace;
+}
+
+/* 顧客別 */
+.cust{background:var(--card); border:1px solid var(--line); border-radius:8px; overflow:hidden; margin-bottom:10px}
+.cust>.h{display:flex; align-items:center; justify-content:space-between; gap:8px;
+  padding:9px 13px; background:#F1EFEB; cursor:pointer}
+.cust>.h .nm{font-weight:600}
+.badge{font-size:11px; padding:2px 7px; border-radius:5px}
+.badge.chouka{background:#DCE8F6; color:var(--chouka-line)}
+.badge.mi{background:var(--mi-bg); color:#A8531D}
+
+/* ログイン */
+#gate{display:flex; min-height:100vh; align-items:center; justify-content:center}
+#gate .box{text-align:center}
+#gate h1{font-size:19px; font-weight:600; margin:0 0 6px}
+#gate p{color:var(--ink-2); margin:0 0 22px}
+#gsi{display:flex; justify-content:center}
+
+.toast{
+  position:fixed; left:50%; bottom:26px; transform:translateX(-50%);
+  background:var(--ink); color:#fff; padding:9px 18px; border-radius:7px;
+  font-size:13px; z-index:99; box-shadow:0 6px 20px rgba(0,0,0,.2);
+}
+.err{background:#8E2F2F}
+.empty{padding:26px; text-align:center; color:var(--ink-3)}
+.loading{padding:26px; text-align:center; color:var(--ink-3)}
+</style>
+</head>
+<body>
+
+<div id="gate">
+  <div class="box">
+    <h1>受注ノート</h1>
+    <p>Googleアカウントでログインしてください</p>
+    <div id="gsi"></div>
+    <p id="gateMsg" style="margin-top:18px; color:#8E2F2F"></p>
+  </div>
+</div>
+
+<div class="wrap" id="app" style="display:none">
+  <header class="top">
+    <div class="brand">
+      <h1>受注ノート</h1>
+      <span class="date" id="todayLabel"></span>
+    </div>
+    <div class="me">
+      <span id="meLabel"></span>
+      <button class="btn sm" onclick="reload()">再読み込み</button>
+      <button class="btn sm" onclick="logout()">ログアウト</button>
+    </div>
+  </header>
+
+  <nav class="tabs">
+    <button class="on" data-tab="list">一覧</button>
+    <button data-tab="nichiji">今日のリスト</button>
+    <button data-tab="cust">顧客別</button>
+    <button data-tab="search">検索</button>
+  </nav>
+
+  <!-- ───── 一覧 ───── -->
+  <section id="tab-list">
+    <div class="board" id="board"></div>
+
+    <div class="tools">
+      <button class="btn" data-f="all">全件</button>
+      <button class="btn" data-f="open">未完了のみ</button>
+      <input type="search" id="q" placeholder="顧客名・品目で検索">
+      <button class="btn" onclick="copyHacchu()">発注用にコピー</button>
+      <button class="btn" onclick="markDenpyo()">伝票済みにする</button>
+    </div>
+
+    <div id="overdueWrap"></div>
+
+    <div class="sec-head">
+      <h2>これから</h2><span class="n" id="mainCount"></span>
+      <div class="legend">
+        <span><i style="background:var(--kyou)"></i>今日</span>
+        <span><i style="background:var(--asu)"></i>明日</span>
+        <span><i style="background:var(--mi)"></i>未</span>
+        <span><i style="background:var(--zumi)"></i>済</span>
+      </div>
+    </div>
+    <div class="tablebox">
+      <table id="mainTable">
+        <thead><tr>
+          <th style="width:26px"></th>
+          <th style="width:62px">受付日</th>
+          <th style="width:130px">顧客名</th>
+          <th>品目</th>
+          <th style="width:58px">容量</th>
+          <th style="width:46px">数量</th>
+          <th style="width:88px">引取日</th>
+          <th style="width:88px">納・出荷日</th>
+          <th style="width:56px" class="sep">発注</th>
+          <th style="width:56px">納品</th>
+          <th style="width:56px">伝票</th>
+          <th style="width:200px">備考</th>
+        </tr></thead>
+        <tbody id="mainBody"><tr><td colspan="12" class="loading">読み込んでいます…</td></tr></tbody>
+      </table>
+    </div>
+    <div id="dupBox"></div>
+  </section>
+
+  <!-- ───── 今日のリスト ───── -->
+  <section id="tab-nichiji" style="display:none">
+    <div class="tools">
+      <input type="date" id="nichijiDate" style="height:32px; border:1px solid var(--line-2); border-radius:6px; padding:0 8px">
+      <button class="btn" onclick="loadNichiji()">表示</button>
+      <button class="btn primary" onclick="copyNichiji()">コピー</button>
+    </div>
+    <pre class="nichiji" id="nichijiText">表示を押してください</pre>
+  </section>
+
+  <!-- ───── 顧客別 ───── -->
+  <section id="tab-cust" style="display:none">
+    <div class="tools">
+      <input type="search" id="custQ" placeholder="顧客名で絞る">
+      <span class="n" id="custCount" style="color:var(--ink-2)"></span>
+    </div>
+    <div id="custBox"></div>
+  </section>
+
+  <!-- ───── 検索 ───── -->
+  <section id="tab-search" style="display:none">
+    <div class="tools">
+      <input type="search" id="sHin" placeholder="品目名">
+      <input type="search" id="sKok" placeholder="顧客名（任意）">
+      <button class="btn" id="sPrice">価格が入っている行のみ</button>
+    </div>
+    <div id="sSum" style="margin-bottom:10px"></div>
+    <div class="tablebox">
+      <table>
+        <thead><tr>
+          <th style="width:76px">受付日</th>
+          <th style="width:140px">顧客名</th>
+          <th>品目</th>
+          <th style="width:58px">容量</th>
+          <th style="width:48px">数量</th>
+          <th style="width:80px">単価</th>
+          <th style="width:80px">仕入</th>
+        </tr></thead>
+        <tbody id="sBody"><tr><td colspan="7" class="empty">品目名を入れてください</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+</div>
+
+<script>
+// ══════════ 設定 ══════════
+const API = 'https://script.google.com/macros/s/AKfycbyXac4wW9TglMnH_4DcUgo1LqJsCAA_63aIeCDk_GazC9_-QoTSOav69376sTFB0w3O/exec';
+const CLIENT_ID = '559687335656-c0oi143rc022ed5b91smt31amca998ru.apps.googleusercontent.com';
+
+// ══════════ 状態 ══════════
+let token = null;
+let me = '';
+let rows = [];
+let kouho = {品目:[], 顧客:[], 発注先:[]};
+let filter = 'open';
+let keyword = '';
+let selected = new Set();
+let boardPick = '';
+let sPriceOnly = false;
+
+const UKETORI = ['在庫','ケミテック','引取','入荷','直送'];
+
+// ══════════ ログイン ══════════
+window.onload = () => {
+  const t = setInterval(() => {
+    if (!window.google || !google.accounts) return;
+    clearInterval(t);
+    google.accounts.id.initialize({
+      client_id: CLIENT_ID,
+      callback: onCredential,
+      auto_select: true
+    });
+    google.accounts.id.renderButton(document.getElementById('gsi'),
+      {theme:'outline', size:'large', text:'signin_with', locale:'ja'});
+    google.accounts.id.prompt();
+  }, 120);
+};
+
+function onCredential(res){
+  token = res.credential;
+  try{
+    me = JSON.parse(atob(token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'))).email || '';
+  }catch(e){ me = ''; }
+  document.getElementById('meLabel').textContent = me;
+  document.getElementById('gate').style.display = 'none';
+  document.getElementById('app').style.display = '';
+  reload();
+}
+
+// トークンは1時間で切れるので、50分ごとに静かに取り直す
+setInterval(() => { if (token && window.google) google.accounts.id.prompt(); }, 50*60*1000);
+
+function logout(){
+  token = null;
+  if (window.google) google.accounts.id.disableAutoSelect();
+  location.reload();
+}
+
+// ══════════ 通信 ══════════
+async function apiGet(action, params={}){
+  const u = new URL(API);
+  u.searchParams.set('action', action);
+  u.searchParams.set('idToken', token);
+  for (const k in params) u.searchParams.set(k, params[k]);
+  const r = await fetch(u, {method:'GET'});
+  const j = await r.json();
+  if (!j.ok) throw new Error(j.error || '読み込みに失敗しました');
+  return j.data;
+}
+
+async function apiPost(action, body={}){
+  const r = await fetch(API, {
+    method:'POST',
+    headers:{'Content-Type':'text/plain;charset=utf-8'},
+    body: JSON.stringify(Object.assign({action, idToken:token}, body))
+  });
+  const j = await r.json();
+  if (!j.ok) throw new Error(j.error || '保存に失敗しました');
+  return j.data;
+}
+
+// ══════════ 読み込み ══════════
+async function reload(){
+  try{
+    const d = await apiGet('all');
+    rows = d.meisai; kouho = d.kouho;
+    renderBoard(d.board);
+    renderMain();
+    renderCust();
+  }catch(e){ toast(e.message, true); }
+}
+
+// ══════════ 表示 ══════════
+const fmtD = s => s ? s.slice(5).replace(/^0/,'').replace('/0','/') : '';
+
+function today(){
+  const d = new Date();
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+document.getElementById('todayLabel').textContent =
+  new Intl.DateTimeFormat('ja-JP',{year:'numeric',month:'long',day:'numeric',weekday:'short'}).format(new Date());
+document.getElementById('nichijiDate').value = new Date().toISOString().slice(0,10);
+
+function renderBoard(b){
+  const spec = [
+    ['期日超過', b.期日超過, 'chouka'],
+    ['伝票未起票', b.伝票未起票, 'mi'],
+    ['未発注', b.未発注, 'mi'],
+    ['入荷遅れ', b.入荷遅れ, ''],
+    ['日付未定', b.日付未定, '']
+  ];
+  document.getElementById('board').innerHTML = spec.map(([k,v,c]) =>
+    `<button class="cell ${c} ${boardPick===k?'on':''}" onclick="pickBoard('${k}')">
+       <div class="k">${k}</div><div class="v">${v}</div></button>`).join('');
+}
+
+function pickBoard(k){
+  boardPick = (boardPick === k) ? '' : k;
+  renderBoard(boardCounts());
+  renderMain();
+}
+function boardCounts(){
+  const c = {期日超過:0, 伝票未起票:0, 未発注:0, 入荷遅れ:0, 日付未定:0};
+  rows.forEach(r => { if (r.mondai && c.hasOwnProperty(r.mondai)) c[r.mondai]++; });
+  return c;
+}
+
+function dateCell(v, r, which){
+  if (!v) return '<span class="dim">未定</span>';
+  const t = today(), d = new Date(v.replace(/-/g,'/'));
+  const diff = Math.round((d - t)/86400000);
+  let cls = '';
+  if (diff === 0) cls = 'd-kyou';
+  else if (diff === 1) cls = 'd-asu';
+  else if (diff < 0 && !r.kanryo && which === 'nouhin') cls = 'd-chouka';
+  return `<span class="${cls}" style="padding:2px 7px; border-radius:4px">${fmtD(v)}</span>`;
+}
+
+function stageCell(state, id, field){
+  if (state === '不要') return `<span class="st-fuyou">不要</span>`;
+  const cls = state === '済' ? 'st-zumi' : 'st-mi';
+  const label = state === '済' ? '済' : '未';
+  return `<span class="${cls}" onclick="toggleStage('${id}','${field}')">${label}</span>`;
+}
+
+function visibleRows(){
+  let v = rows;
+  if (boardPick) v = v.filter(r => r.mondai === boardPick);
+  else if (filter === 'open') v = v.filter(r => !r.kanryo);
+  if (keyword){
+    const k = keyword.toLowerCase();
+    v = v.filter(r => (r.kokyaku+' '+r.hinmoku+' '+r.bikou).toLowerCase().includes(k));
+  }
+  return v.slice().sort((a,b) => (b.uketsuke||'').localeCompare(a.uketsuke||'') ||
+                                 (b.id||'').localeCompare(a.id||''));
+}
+
+function renderMain(){
+  const t = today();
+  const all = visibleRows();
+  const over = all.filter(r => r.mondai === '期日超過' || (r.okureNissu > 0 && r.mondai));
+  const rest = all.filter(r => over.indexOf(r) === -1);
+
+  // 期日を過ぎたもの
+  const ow = document.getElementById('overdueWrap');
+  if (over.length && !boardPick){
+    ow.innerHTML =
+      `<div class="sec-head"><h2>期日を過ぎたもの</h2><span class="n">${over.length}件</span></div>
+       <div class="tablebox"><table><thead><tr>
+         <th style="width:26px"></th><th style="width:54px">遅れ</th><th style="width:62px">受付日</th>
+         <th style="width:130px">顧客名</th><th>品目</th><th style="width:58px">容量</th>
+         <th style="width:46px">数量</th><th style="width:88px">引取日</th><th style="width:88px">納・出荷日</th>
+         <th style="width:56px" class="sep">発注</th><th style="width:56px">納品</th><th style="width:56px">伝票</th>
+         <th style="width:180px">備考</th>
+       </tr></thead><tbody>${over.map(r => rowHtml(r, true)).join('')}</tbody></table></div>`;
+  } else ow.innerHTML = '';
+
+  document.getElementById('mainCount').textContent = rest.length + '件';
+  const body = document.getElementById('mainBody');
+  let prevOrder = null, alt = false, html = '';
+  rest.forEach(r => {
+    if (r.orderId !== prevOrder){ alt = !alt; prevOrder = r.orderId; }
+    html += rowHtml(r, false, alt, r.orderId === prevOrder);
+  });
+  html += newRowHtml();
+  body.innerHTML = html || newRowHtml();
+  bindNewRow();
+}
+
+function rowHtml(r, withOkure, alt, sameOrder){
+  const cls = [];
+  if (alt) cls.push('alt');
+  if (selected.has(r.id)) cls.push('sel');
+  if (r.mondai === '期日超過') cls.push('overdue');
+  else if (r.timing.indexOf('今日') === 0) cls.push('t-kyou');
+  else if (r.timing.indexOf('明日') === 0) cls.push('t-asu');
+
+  const hik = r.uketori === '在庫'
+    ? '<span class="chip">在庫</span>'
+    : dateCell(r.hikitori, r, 'hikitori');
+
+  return `<tr class="${cls.join(' ')}">
+    <td class="mid"><input type="checkbox" ${selected.has(r.id)?'checked':''} onchange="pickRow('${r.id}',this.checked)"></td>
+    ${withOkure ? `<td style="color:var(--chouka-line)">${r.okureNissu!=null?r.okureNissu+'日':''}</td>` : ''}
+    <td class="dim">${fmtD(r.uketsuke)}</td>
+    <td>${esc(r.kokyaku)}</td>
+    <td>${esc(r.hinmoku)}</td>
+    <td class="dim">${esc(r.yoryo)}</td>
+    <td class="num">${r.suryo==null?'':r.suryo}</td>
+    <td>${hik}</td>
+    <td>${dateCell(r.nouhin, r, 'nouhin')}</td>
+    <td class="stage sep">${stageCell(r.stHacchu, r.id, 'hacchuZumi')}</td>
+    <td class="stage">${stageCell(r.stNouhin==='済'?'済':'未', r.id, 'nouhinDone')}</td>
+    <td class="stage">${stageCell(r.stDenpyo, r.id, 'denpyoZumi')}</td>
+    <td class="dim">${esc(r.bikou)}</td>
+  </tr>`;
+}
+
+function esc(s){
+  return String(s==null?'':s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+}
+
+// ══════════ 進捗の切り替え ══════════
+async function toggleStage(id, field){
+  const r = rows.find(x => x.id === id);
+  if (!r) return;
+  const patch = {};
+  if (field === 'hacchuZumi') patch.hacchuZumi = !r.hacchuZumi;
+  if (field === 'denpyoZumi') patch.denpyoZumi = !r.denpyoZumi;
+  if (field === 'nouhinDone'){
+    patch.nouhin = r.stNouhin === '済' ? '' : fmtToday();
+  }
+  try{
+    await apiPost('updateMeisai', {id, patch});
+    await reload();
+  }catch(e){ toast(e.message, true); }
+}
+function fmtToday(){
+  const d = new Date();
+  return d.getFullYear()+'/'+(d.getMonth()+1)+'/'+d.getDate();
+}
+
+function pickRow(id, on){
+  if (on) selected.add(id); else selected.delete(id);
+  renderMain();
+}
+
+// ══════════ 入力行 ══════════
+function newRowHtml(){
+  return `<tr class="newrow">
+    <td></td>
+    <td><input id="nUke" value="${fmtToday()}"></td>
+    <td style="position:relative"><input id="nKok" placeholder="顧客名" autocomplete="off"></td>
+    <td style="position:relative"><input id="nHin" placeholder="品目" autocomplete="off"></td>
+    <td><input id="nYor" placeholder="容量"></td>
+    <td><input id="nSuu" placeholder="数" style="text-align:right"></td>
+    <td><select id="nUkt">${UKETORI.map(u=>`<option${u==='在庫'?' selected':''}>${u}</option>`).join('')}</select></td>
+    <td><input id="nNou" placeholder="納品日"></td>
+    <td colspan="4"><button class="btn primary" onclick="addRow()">追加</button></td>
+  </tr>`;
+}
+
+function bindNewRow(){
+  suggest('nKok', () => kouho.顧客, (v) => {});
+  suggest('nHin', () => kouho.品目, (v, item) => {
+    if (item && item.yoryo && !document.getElementById('nYor').value)
+      document.getElementById('nYor').value = item.yoryo;
+  });
+  const k = document.getElementById('nKok'), h = document.getElementById('nHin');
+  if (k) k.addEventListener('blur', checkDup);
+  if (h) h.addEventListener('blur', checkDup);
+}
+
+function suggest(id, listFn, onPick){
+  const el = document.getElementById(id);
+  if (!el) return;
+  let box = null, idx = -1, items = [];
+  const close = () => { if (box){ box.remove(); box = null; idx = -1; } };
+
+  el.addEventListener('input', () => {
+    close();
+    const v = el.value.trim().toLowerCase();
+    if (!v) return;
+    items = listFn().filter(x => x.name.toLowerCase().includes(v)).slice(0, 12);
+    if (!items.length) return;
+    box = document.createElement('div');
+    box.className = 'suggest';
+    box.innerHTML = items.map((x,i) =>
+      `<div data-i="${i}">${esc(x.name)}${x.yoryo?`<span class="sub">${esc(x.yoryo)}</span>`:''}</div>`).join('');
+    const r = el.getBoundingClientRect();
+    box.style.left = (r.left + scrollX) + 'px';
+    box.style.top  = (r.bottom + scrollY + 2) + 'px';
+    box.style.minWidth = r.width + 'px';
+    document.body.appendChild(box);
+    box.querySelectorAll('div').forEach(d =>
+      d.addEventListener('mousedown', e => {
+        e.preventDefault();
+        const it = items[+d.dataset.i];
+        el.value = it.name; onPick(it.name, it); close(); checkDup();
+      }));
+  });
+
+  el.addEventListener('keydown', e => {
+    if (!box) return;
+    const ds = box.querySelectorAll('div');
+    if (e.key === 'ArrowDown'){ e.preventDefault(); idx = Math.min(idx+1, ds.length-1); }
+    else if (e.key === 'ArrowUp'){ e.preventDefault(); idx = Math.max(idx-1, 0); }
+    else if (e.key === 'Enter' && idx >= 0){
+      e.preventDefault();
+      const it = items[idx]; el.value = it.name; onPick(it.name, it); close(); checkDup(); return;
+    } else if (e.key === 'Escape'){ close(); return; }
+    else return;
+    ds.forEach((d,i) => d.classList.toggle('pick', i===idx));
+  });
+  el.addEventListener('blur', () => setTimeout(close, 150));
+}
+
+function checkDup(){
+  const k = (document.getElementById('nKok')||{}).value || '';
+  const h = (document.getElementById('nHin')||{}).value || '';
+  const box = document.getElementById('dupBox');
+  if (!k || !h){ box.innerHTML = ''; return; }
+  const hit = rows.filter(r => !r.kanryo && r.kokyaku === k && r.hinmoku === h);
+  if (!hit.length){ box.innerHTML = ''; return; }
+  box.innerHTML =
+    `<div class="dupwarn"><div class="t">同じ内容が未完了で残っています</div>` +
+    hit.map(r => `<div>${fmtD(r.uketsuke)}　${esc(r.kokyaku)}　${esc(r.hinmoku)}　${esc(r.yoryo)}　${r.suryo||''}　<span style="color:#A8531D">${r.mondai||''}</span></div>`).join('') +
+    `<div style="margin-top:8px"><button class="btn sm" onclick="document.getElementById('dupBox').innerHTML=''">別の注文として続ける</button></div></div>`;
+}
+
+async function addRow(){
+  const g = id => (document.getElementById(id)||{}).value || '';
+  const rec = {
+    uketsuke: g('nUke'), kokyaku: g('nKok'), hinmoku: g('nHin'),
+    yoryo: g('nYor'), suryo: g('nSuu'), uketori: g('nUkt'), nouhin: g('nNou')
+  };
+  if (!rec.kokyaku || !rec.hinmoku){ toast('顧客名と品目を入れてください', true); return; }
+  try{
+    await apiPost('addMeisai', {rec});
+    document.getElementById('dupBox').innerHTML = '';
+    await reload();
+    const h = document.getElementById('nHin');
+    if (h) h.focus();
+    toast('追加しました');
+  }catch(e){ toast(e.message, true); }
+}
+
+// ══════════ まとめ操作 ══════════
+async function markDenpyo(){
+  if (!selected.size){ toast('行を選んでください', true); return; }
+  try{
+    await apiPost('updateMany', {ids:[...selected], patch:{denpyoZumi:true}});
+    selected.clear();
+    await reload();
+    toast('伝票済みにしました');
+  }catch(e){ toast(e.message, true); }
+}
+
+async function copyHacchu(){
+  if (!selected.size){ toast('行を選んでください', true); return; }
+  try{
+    const txt = await apiPost('getHacchuCopy', {ids:[...selected]});
+    await navigator.clipboard.writeText(txt);
+    toast('コピーしました。ケミテックのExcelに貼れます');
+  }catch(e){ toast(e.message, true); }
+}
+
+// ══════════ 今日のリスト ══════════
+async function loadNichiji(){
+  const d = document.getElementById('nichijiDate').value.replace(/-/g,'/');
+  document.getElementById('nichijiText').textContent = '作成しています…';
+  try{
+    const t = await apiGet('getNichijiList', {date:d});
+    document.getElementById('nichijiText').textContent = t || '（該当なし）';
+  }catch(e){ toast(e.message, true); }
+}
+async function copyNichiji(){
+  const t = document.getElementById('nichijiText').textContent;
+  await navigator.clipboard.writeText(t);
+  toast('コピーしました');
+}
+
+// ══════════ 顧客別 ══════════
+function renderCust(){
+  const q = (document.getElementById('custQ')||{}).value || '';
+  const open = rows.filter(r => !r.kanryo);
+  const g = {};
+  open.forEach(r => { (g[r.kokyaku] = g[r.kokyaku] || []).push(r); });
+  let keys = Object.keys(g);
+  if (q) keys = keys.filter(k => k.toLowerCase().includes(q.toLowerCase()));
+  const score = k => {
+    const l = g[k];
+    return (l.some(r => r.mondai==='期日超過') ? 1000 : 0) +
+           (l.some(r => r.mondai==='未発注') ? 500 : 0) + l.length;
+  };
+  keys.sort((a,b) => score(b)-score(a));
+  document.getElementById('custCount').textContent = keys.length + '社　' + open.length + '件';
+
+  document.getElementById('custBox').innerHTML = keys.map((k,i) => {
+    const l = g[k];
+    const nc = l.filter(r => r.mondai==='期日超過').length;
+    const nm = l.filter(r => r.mondai==='未発注').length;
+    const open2 = i < 2;
+    return `<div class="cust">
+      <div class="h" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display==='none'?'':'none'">
+        <span class="nm">${esc(k)}</span>
+        <span>${nc?`<span class="badge chouka">超過 ${nc}</span> `:''}${nm?`<span class="badge mi">未発注 ${nm}</span> `:''}
+        <span style="color:var(--ink-2); font-size:12px">${l.length}件</span></span>
+      </div>
+      <table style="display:${open2?'':'none'}"><tbody>${l.map(r => `<tr>
+        <td class="dim" style="width:62px; padding-left:13px">${fmtD(r.uketsuke)}</td>
+        <td>${esc(r.hinmoku)}</td>
+        <td class="dim" style="width:58px">${esc(r.yoryo)}</td>
+        <td class="num" style="width:40px">${r.suryo==null?'':r.suryo}</td>
+        <td style="width:120px; padding-right:13px">${r.mondai
+          ? `<span class="badge ${r.mondai==='期日超過'?'chouka':'mi'}">${r.mondai}${r.okureNissu?' '+r.okureNissu+'日':''}</span>`
+          : (r.timing ? `<span class="chip">${r.timing}</span>` : `<span class="dim">${fmtD(r.nouhin)||''}</span>`)}</td>
+      </tr>`).join('')}</tbody></table>
+    </div>`;
+  }).join('') || '<div class="empty">未納品の案件はありません</div>';
+}
+
+// ══════════ 検索 ══════════
+function renderSearch(){
+  const h = document.getElementById('sHin').value.trim().toLowerCase();
+  const k = document.getElementById('sKok').value.trim().toLowerCase();
+  const body = document.getElementById('sBody');
+  const sum = document.getElementById('sSum');
+  if (!h && !k){
+    body.innerHTML = '<tr><td colspan="7" class="empty">品目名を入れてください</td></tr>';
+    sum.innerHTML = ''; return;
+  }
+  let v = rows.filter(r =>
+    (!h || r.hinmoku.toLowerCase().includes(h)) &&
+    (!k || r.kokyaku.toLowerCase().includes(k)));
+  if (sPriceOnly) v = v.filter(r => r.tanka !== '' && r.tanka != null);
+  v.sort((a,b) => (b.uketsuke||'').localeCompare(a.uketsuke||''));
+
+  const withP = v.filter(r => r.tanka !== '' && r.tanka != null);
+  sum.innerHTML = v.length
+    ? `<div style="background:#F1EFEB; border-radius:7px; padding:9px 13px">
+        <span style="color:var(--ink-2)">${v.length}件</span>
+        ${v[0] ? `　<span class="dim">最終 ${fmtD(v[0].uketsuke)} ${esc(v[0].kokyaku)}</span>` : ''}
+        ${withP[0] ? `　<span class="dim">直近価格 ${Number(withP[0].tanka).toLocaleString()}円（${esc(withP[0].yoryo)}）</span>` : ''}
+      </div>` : '';
+
+  body.innerHTML = v.slice(0,300).map(r => `<tr>
+    <td class="dim">${r.uketsuke}</td>
+    <td>${esc(r.kokyaku)}</td>
+    <td>${esc(r.hinmoku)}</td>
+    <td class="dim">${esc(r.yoryo)}</td>
+    <td class="num">${r.suryo==null?'':r.suryo}</td>
+    <td class="num">${r.tanka? Number(r.tanka).toLocaleString() : '<span class="dim">—</span>'}</td>
+    <td class="num">${r.shiire? Number(r.shiire).toLocaleString() : '<span class="dim">—</span>'}</td>
+  </tr>`).join('') || '<tr><td colspan="7" class="empty">見つかりませんでした</td></tr>';
+}
+
+// ══════════ 画面の切り替え ══════════
+document.querySelectorAll('nav.tabs button').forEach(b => {
+  b.onclick = () => {
+    document.querySelectorAll('nav.tabs button').forEach(x => x.classList.toggle('on', x===b));
+    ['list','nichiji','cust','search'].forEach(t =>
+      document.getElementById('tab-'+t).style.display = (t===b.dataset.tab ? '' : 'none'));
+    if (b.dataset.tab === 'nichiji') loadNichiji();
+  };
+});
+document.querySelectorAll('.tools button[data-f]').forEach(b => {
+  b.onclick = () => { filter = b.dataset.f; boardPick=''; renderBoard(boardCounts()); renderMain(); };
+});
+document.getElementById('q').addEventListener('input', e => { keyword = e.target.value; renderMain(); });
+document.getElementById('custQ').addEventListener('input', renderCust);
+document.getElementById('sHin').addEventListener('input', renderSearch);
+document.getElementById('sKok').addEventListener('input', renderSearch);
+document.getElementById('sPrice').onclick = function(){
+  sPriceOnly = !sPriceOnly;
+  this.style.background = sPriceOnly ? 'var(--ink)' : '';
+  this.style.color = sPriceOnly ? '#fff' : '';
+  renderSearch();
+};
+
+// ══════════ 通知 ══════════
+let toastT = null;
+function toast(msg, isErr){
+  const old = document.querySelector('.toast'); if (old) old.remove();
+  const d = document.createElement('div');
+  d.className = 'toast' + (isErr ? ' err' : '');
+  d.textContent = msg;
+  document.body.appendChild(d);
+  clearTimeout(toastT);
+  toastT = setTimeout(() => d.remove(), isErr ? 6000 : 2600);
+}
+</script>
+</body>
+</html>
