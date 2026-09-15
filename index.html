@@ -122,6 +122,21 @@ td.stage>span{display:block; height:34px; line-height:34px; cursor:pointer; user
 td.stage>span:hover{filter:brightness(.92)}
 .dedit{padding:2px 7px; border-radius:4px; cursor:pointer; border:1px solid transparent; display:inline-block; min-width:40px}
 .dedit:hover{border-color:var(--line-2); background:#fff}
+tbody tr.busy td{opacity:.55; pointer-events:none; position:relative}
+tbody tr.busy td:first-child::after{
+  content:''; position:absolute; left:7px; top:12px; width:10px; height:10px;
+  border:2px solid var(--ink-3); border-top-color:transparent; border-radius:50%;
+  animation:spin .7s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+tbody tr.leaving td{
+  background:#EDF3EC !important; color:var(--ink-3); pointer-events:none;
+  transition:opacity .5s ease; opacity:.5;
+}
+@media (prefers-reduced-motion: reduce){
+  tbody tr.busy td:first-child::after{animation:none}
+  tbody tr.leaving td{transition:none}
+}
 .rowmenu{margin-left:7px; color:var(--ink-3); cursor:pointer; padding:0 4px; border-radius:4px;
   opacity:0; letter-spacing:1px}
 tbody tr:hover .rowmenu{opacity:1}
@@ -357,6 +372,8 @@ let keyword = '';
 let selected = new Set();
 let boardPick = '';
 let sPriceOnly = false;
+let busy = new Set();     // 保存中の行
+let hiding = new Set();   // 一覧から外れる途中の行
 
 const UKETORI = ['在庫','ケミテック','引取','入荷','直送'];
 
@@ -477,6 +494,7 @@ function dateCell(v, r, which){
     else if (diff < 0 && !r.kanryo && which === 'nouhin') cls = 'd-chouka';
     label = fmtD(v);
   }
+  if (busy.has(r.id)) return `<span class="${cls}">${label}</span>`;
   return `<span class="dedit ${cls}" onclick="openDatePanel(event,'${r.id}','${which}')">${label}</span>`;
 }
 
@@ -536,27 +554,33 @@ async function saveDatePanel(id, field){
     if (u === '在庫') delete patch.hikitori;
   }
   closePanel();
+  busy.add(id);
+  Object.assign(r, patch);
+  renderMain();
   try{
     await apiPost('updateMeisai', {id, patch});
-    await reload();
-    toast('保存しました');
-  }catch(e){ toast(e.message, true); }
+    await afterSave(id, '保存しました');
+  }catch(e){ busy.delete(id); toast(e.message, true); reload(); }
 }
 
 async function clearDate(id, field){
   closePanel();
+  busy.add(id);
+  const r = rows.find(x => x.id === id);
+  if (field === 'nouhin') r.nouhin = ''; else r.hikitori = '';
+  renderMain();
   try{
     const patch = {}; patch[field] = '';
     await apiPost('updateMeisai', {id, patch});
-    await reload();
-    toast('日付を消しました');
-  }catch(e){ toast(e.message, true); }
+    await afterSave(id, '日付を消しました');
+  }catch(e){ busy.delete(id); toast(e.message, true); reload(); }
 }
 
 function stageCell(state, id, field){
   if (state === '不要') return `<span class="st-fuyou">不要</span>`;
   const cls = state === '済' ? 'st-zumi' : 'st-mi';
   const label = state === '済' ? '済' : '未';
+  if (busy.has(id)) return `<span class="${cls}">${label}</span>`;
   return `<span class="${cls}" onclick="toggleStage(event,'${id}','${field}')">${label}</span>`;
 }
 
@@ -587,11 +611,15 @@ function openRowMenu(ev, id){
 async function toMemo(id){
   closePanel();
   const r = rows.find(x => x.id === id);
+  busy.add(id); hiding.add(id); renderMain();
   try{
     await apiPost('moveToMemo', {id});
-    await reload();
     toast(`${esc(r.hinmoku)} をメモへ移しました`);
-  }catch(e){ toast(e.message, true); }
+    setTimeout(async () => {
+      busy.delete(id); hiding.delete(id);
+      await reload();
+    }, 1000);
+  }catch(e){ busy.delete(id); hiding.delete(id); toast(e.message, true); reload(); }
 }
 
 function visibleRows(){
@@ -640,6 +668,8 @@ function renderMain(){
 
 function rowHtml(r, withOkure, alt, sameOrder){
   const cls = [];
+  if (busy.has(r.id)) cls.push('busy');
+  if (hiding.has(r.id)) cls.push('leaving');
   if (alt) cls.push('alt');
   if (selected.has(r.id)) cls.push('sel');
   if (r.mondai === '期日超過') cls.push('overdue');
@@ -655,7 +685,7 @@ function rowHtml(r, withOkure, alt, sameOrder){
     ${withOkure ? `<td style="color:var(--chouka-line)">${r.okureNissu!=null?r.okureNissu+'日':''}</td>` : ''}
     <td class="dim">${fmtD(r.uketsuke)}</td>
     <td>${esc(r.kokyaku)}</td>
-    <td>${esc(r.hinmoku)}<span class="rowmenu" onclick="openRowMenu(event,'${r.id}')">…</span></td>
+    <td>${esc(r.hinmoku)}${busy.has(r.id)?'':`<span class="rowmenu" onclick="openRowMenu(event,'${r.id}')">…</span>`}</td>
     <td class="dim">${esc(r.yoryo)}</td>
     <td class="num">${r.suryo==null?'':r.suryo}</td>
     <td>${hik}</td>
@@ -708,27 +738,48 @@ async function doStage(id, field, to){
   if (field === 'hacchuZumi'){ patch.hacchuZumi = to; nm = '発注'; }
   if (field === 'denpyoZumi'){ patch.denpyoZumi = to; nm = '伝票'; }
   if (field === 'nouhinDone'){ patch.nouhin = to ? fmtToday() : ''; nm = '納品'; }
+
+  // 押した行をすぐ固める。保存が終わるまで触れない
+  busy.add(id);
+  Object.assign(r, patch);
+  if (field === 'hacchuZumi') r.stHacchu = to ? '済' : '未';
+  if (field === 'denpyoZumi') r.stDenpyo = to ? '済' : '未';
+  if (field === 'nouhinDone') r.stNouhin = to ? '済' : '未';
+  renderMain();
+
   try{
     await apiPost('updateMeisai', {id, patch});
-    const hidden = await refreshQuiet(id);
-    toast(`${esc(r.kokyaku)}　${nm}を${to?'済':'未'}にしました`
-          + (hidden ? '（完了したので一覧から外れます）' : ''));
-  }catch(e){ toast(e.message, true); reload(); }
+    await afterSave(id, `${r.kokyaku}　${nm}を${to?'済':'未'}にしました`);
+  }catch(e){
+    busy.delete(id);
+    toast(e.message, true);
+    reload();
+  }
 }
 
-/** 保存後に静かに読み直す。その行が一覧から消えるなら true */
-async function refreshQuiet(id){
+/**
+ * 保存が終わったあとの後始末。
+ * その行が一覧から外れる場合は、いったん薄く表示してから消す。
+ */
+async function afterSave(id, msg){
   const d = await apiGet('all');
   rows = d.meisai; kouho = d.kouho;
-  const r = rows.find(x => x.id === id);
-  const hidden = r && r.kanryo && filter === 'open' && !boardPick;
   renderBoard(d.board);
-  setTimeout(() => { renderMain(); renderCust(); }, hidden ? 900 : 0);
-  return hidden;
-}
-function fmtToday(){
-  const d = new Date();
-  return d.getFullYear()+'/'+(d.getMonth()+1)+'/'+d.getDate();
+
+  const r = rows.find(x => x.id === id);
+  const willHide = r && r.kanryo && filter === 'open' && !boardPick;
+
+  if (willHide){
+    hiding.add(id);
+    busy.delete(id);
+    renderMain();                       // 完了の見た目で薄く残す
+    toast(msg + '（完了）');
+    setTimeout(() => { hiding.delete(id); renderMain(); renderCust(); }, 1400);
+  } else {
+    busy.delete(id);
+    renderMain(); renderCust();
+    toast(msg);
+  }
 }
 
 function pickRow(id, on){
@@ -839,12 +890,15 @@ async function addRow(){
 // ══════════ まとめ操作 ══════════
 async function markDenpyo(){
   if (!selected.size){ toast('行を選んでください', true); return; }
+  selected.forEach(id => busy.add(id));
+  renderMain();
   try{
+    const n = selected.size;
     await apiPost('updateMany', {ids:[...selected], patch:{denpyoZumi:true}});
-    selected.clear();
+    selected.clear(); busy.clear();
     await reload();
-    toast('伝票済みにしました');
-  }catch(e){ toast(e.message, true); }
+    toast(n + '件を伝票済みにしました');
+  }catch(e){ busy.clear(); toast(e.message, true); reload(); }
 }
 
 async function copyHacchu(){
@@ -952,7 +1006,7 @@ function renderSearch(){
   body.innerHTML = v.slice(0,300).map(r => `<tr>
     <td class="dim">${r.uketsuke}</td>
     <td>${esc(r.kokyaku)}</td>
-    <td>${esc(r.hinmoku)}<span class="rowmenu" onclick="openRowMenu(event,'${r.id}')">…</span></td>
+    <td>${esc(r.hinmoku)}${busy.has(r.id)?'':`<span class="rowmenu" onclick="openRowMenu(event,'${r.id}')">…</span>`}</td>
     <td class="dim">${esc(r.yoryo)}</td>
     <td class="num">${r.suryo==null?'':r.suryo}</td>
     <td class="num">${r.tanka? Number(r.tanka).toLocaleString() : '<span class="dim">—</span>'}</td>
