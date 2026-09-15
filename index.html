@@ -532,6 +532,13 @@ async function clearDate(id, field){
   }catch(e){ toast(e.message, true); }
 }
 
+function stageCell(state, id, field){
+  if (state === '不要') return `<span class="st-fuyou">不要</span>`;
+  const cls = state === '済' ? 'st-zumi' : 'st-mi';
+  const label = state === '済' ? '済' : '未';
+  return `<span class="${cls}" onclick="toggleStage(event,'${id}','${field}')">${label}</span>`;
+}
+
 function visibleRows(){
   let v = rows;
   if (boardPick) v = v.filter(r => r.mondai === boardPick);
